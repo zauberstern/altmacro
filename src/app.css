@@ -1,0 +1,32 @@
+@import "tailwindcss";
+@import "@fontsource/newsreader/400.css";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+
+@theme {
+  --font-serif: "Newsreader", "Iowan Old Style", serif;
+  --font-sans: "IBM Plex Sans", "Helvetica Neue", sans-serif;
+  --color-paper: #fffcf0;
+  --color-ink: #100f0f;
+  --color-muted: #6f6e69;
+  --color-line: #dad8ce;
+  --color-accent: #af3029;
+  --color-bund: #4385be;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}

@@ -1,0 +1,12 @@
+---
+description: Think before coding, keep the change small, and verify every behavior
+alwaysApply: true
+---
+
+# Karpathy guidelines
+
+- State assumptions before editing. If a series is missing, leave it blank.
+- Touch only the files the task needs.
+- Prefer a library that already does the job. Write new code when no library covers the case.
+- Every behavior that changes a number has a failing test first, then the code that makes it pass.
+- Do not invent a weight, a primary balance, or a yield.

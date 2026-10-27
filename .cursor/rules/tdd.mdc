@@ -1,0 +1,15 @@
+---
+description: Test first. See the failure. Then the smallest code.
+alwaysApply: true
+---
+
+# TDD
+
+- Name the behavior in one sentence.
+- Add one failing test. Run that test and keep the failure.
+- Write the smallest code that turns it green. Run it again.
+- If production code was written before the failing test, delete that code and start from the test.
+- One behavior per cycle.
+- Close with `pytest -q` or `npm test` (`vitest run`). Do not use watch mode.
+- Docs and prose do not need a test. Say so in the same turn. Production code does.
+- Tests read a small fixture. They do not open WRDS.
