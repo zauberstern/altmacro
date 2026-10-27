@@ -9,7 +9,6 @@ __pycache__/
 vendor/
 *.parquet
 data/raw/
-.cursor/tdd-green
 playwright-report/
 test-results/
 .DS_Store
