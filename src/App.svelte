@@ -1,7 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import ChartView from "./ChartView.svelte";
-  import { allowedScenarios, applyAction, initialState, type View } from "./engine/state";
+  import { applyAction, initialState, type View } from "./engine/state";
+  import { cardsFor } from "./engine/cards";
+  import { countryName, sortCountries } from "./engine/names";
+  import { buildTimeline } from "./chart/timeline";
 
   type Point = { d: string; v: number; annual?: boolean };
   type Country = { iso: string; name: string; euro?: boolean; lines: Record<string, Point[]> };
@@ -55,6 +58,8 @@
     view = applyAction(view, action, panel);
   }
 
+  let copied = $state(false);
+
   function share() {
     if (!view) return;
     const payload = encodeURIComponent(
@@ -62,7 +67,9 @@
     );
     const url = `${location.origin}${location.pathname}?s=${payload}`;
     localStorage.setItem("altmacro-scenario", payload);
-    navigator.clipboard?.writeText(url).catch(() => undefined);
+    navigator.clipboard?.writeText(url).then(() => {
+      copied = true;
+    }).catch(() => undefined);
   }
 
   function at(lines: Point[] | undefined, month: string) {
@@ -71,29 +78,53 @@
     return hit ?? null;
   }
 
+  let page = $state(0);
   const country = $derived(panel && view ? panel.countries[view.country] : null);
   const names = $derived(
     panel
-      ? Object.values(panel.countries)
-          .map((c) => ({ id: c.iso, name: c.name || c.iso }))
-          .sort((a, b) => a.name.localeCompare(b.name))
+      ? sortCountries(
+          Object.values(panel.countries).map((c) => ({
+            id: c.iso,
+            name: countryName(c.iso, c.name),
+          })),
+        )
       : [],
   );
-  const scenarios = $derived(panel && view ? allowedScenarios(view, panel) : []);
-  const yieldNow = $derived(country && view ? at(country.lines.ltgdr, view.month) : null);
-  const spreadNow = $derived(country && view ? at(country.lines.oat_bund_bps, view.month) : null);
-  const unemp = $derived(country && view ? at(country.lines.unemp1, view.month) : null);
+  const cards = $derived(panel && view ? cardsFor(view.country, view.month, panel) : []);
+  const visible = $derived(cards.slice(page * 5, page * 5 + 5));
+  const months = $derived(country?.lines.ltgdr?.map((row) => row.d) ?? []);
+  const today = $derived(country?.lines.ltgdr?.at(-1) ?? null);
+  const held = $derived(
+    country && view && view.scenario === "hold-10y" && today && view.month < today.d
+      ? at(country.lines.ltgdr, view.month)
+      : null,
+  );
+  const shown = $derived(held ?? today);
+  const spreadNow = $derived(country && today ? at(country.lines.oat_bund_bps, today.d) : null);
+  const nextCard = $derived(cards.find((card) => card.playable)?.name ?? null);
+  const stateLine = $derived(
+    view
+      ? `${countryName(view.country, country?.name)}, ${today ? today.d.slice(0, 7) : "no yield"}, ${view.scenario ? "Hold the 10-year" : "no card"}`
+      : "",
+  );
 
   onMount(() => {
     load();
   });
 
   $effect(() => {
-    if (!view) return;
+    if (!view || !panel) return;
+    const spec = buildTimeline(panel, view);
+    const published = spec.data.datasets[0]?.data ?? [];
+    const fork = spec.data.datasets.find((row) => row.label === "Scenario")?.data ?? null;
+    const last = (fork ?? published).at(-1)?.y ?? null;
     (window as Window & { __altmacro?: unknown }).__altmacro = {
       country: view.country,
       month: view.month,
       scenario: view.scenario,
+      published,
+      fork,
+      last,
     };
   });
 </script>
@@ -103,85 +134,94 @@
     <p>{loadError || "Loading the measured history."}</p>
   </main>
 {:else}
-  <main class="grid h-dvh grid-rows-[auto_1fr_auto] gap-4 p-4 lg:grid-cols-[16rem_1fr_16rem] lg:grid-rows-[1fr_auto]">
-    <section class="flex flex-col gap-3 lg:col-start-1 lg:row-start-1">
-      <p class="font-serif text-2xl">Altmacro</p>
+  <main class="grid h-dvh grid-rows-[auto_1fr_auto] gap-4 overflow-auto p-4 lg:grid-cols-[18rem_1fr] lg:grid-rows-[1fr_auto]">
+    <aside class="flex flex-col gap-3">
+      <p class="text-sm">{stateLine}</p>
+      <p class="text-sm">Today's 10-year yield is {shown ? `${shown.v.toFixed(2)}%` : "not in this file"}.</p>
+      <p class="num text-4xl font-semibold">{shown ? `${shown.v.toFixed(2)}%` : "not in this file"}</p>
+      {#if held && today}
+        <p class="num text-sm">Published yield on {today.d.slice(0, 7)} is {today.v.toFixed(2)}%.</p>
+      {/if}
+      {#if view.country === "FRA"}
+        <p class="num text-sm">OAT Bund spread {spreadNow ? `${spreadNow.v.toFixed(1)} bp` : "not in this file"}.</p>
+      {/if}
       <label class="text-sm">
         Country
         <select
+          id="country"
           class="mt-1 w-full border border-line bg-paper p-2"
           value={view.country}
-          onchange={(e) => act({ type: "country", id: e.currentTarget.value })}
+          onchange={(e) => {
+            page = 0;
+            act({ type: "country", id: e.currentTarget.value });
+          }}
         >
           {#each names as row (row.id)}
             <option value={row.id}>{row.name}</option>
           {/each}
         </select>
       </label>
-      <p class="text-pretty text-sm text-muted">
-        Published history for {country?.name}. The decision month is
-        <span class="num">{view.month}</span>.
-        {#if country?.euro}
-          This country uses the euro, so there is no nominal devaluation control.
+      <label class="text-sm">
+        Play month
+        <select
+          id="play-month"
+          class="mt-1 w-full border border-line bg-paper p-2"
+          value={view.month}
+          onchange={(e) => act({ type: "month", id: e.currentTarget.value })}
+        >
+          {#each months as month (month)}
+            <option value={month}>{month.slice(0, 7)}</option>
+          {/each}
+        </select>
+      </label>
+      <button type="button" class="border border-ink px-3 py-2 text-left" onclick={share}>
+        {copied ? "Link copied." : "Copy share link"}
+      </button>
+      {#if view.past.length}
+        <button type="button" class="border border-line px-3 py-2 text-left" onclick={() => act({ type: "undo" })}>
+          Undo
+        </button>
+      {/if}
+    </aside>
+
+    <section class="flex min-h-0 flex-col gap-3">
+      <div class="relative h-72 w-full">
+        <ChartView {panel} {view} />
+      </div>
+      <p class="text-sm">
+        {#if view.scenario}
+          Today's yield is the {view.month.slice(0, 7)} yield.
+        {:else if nextCard}
+          Next card: {nextCard}.
+        {:else}
+          Pick an earlier month. Today is already the last point.
         {/if}
       </p>
-      <dl class="grid gap-2 text-sm">
-        <div>
-          <dt>10-year yield</dt>
-          <dd class="num text-lg">{yieldNow ? `${yieldNow.v.toFixed(2)}%` : "Not in the file"}</dd>
-        </div>
-        <div>
-          <dt>OAT minus Bund</dt>
-          <dd class="num text-lg">{spreadNow ? `${spreadNow.v.toFixed(1)} bp` : "Needs both yields"}</dd>
-        </div>
-        <div>
-          <dt>Unemployment</dt>
-          <dd class="num">{unemp ? `${unemp.v.toFixed(2)}%` : "Not in the file"}{unemp?.annual ? " (annual)" : ""}</dd>
-        </div>
-      </dl>
-    </section>
-
-    <section class="min-h-64 lg:col-start-2 lg:row-start-1">
-      <ChartView {panel} {view} />
-    </section>
-
-    <section class="flex flex-col gap-3 lg:col-start-3 lg:row-start-1">
-      <h2 class="font-serif text-xl">Scenario</h2>
-      <p class="text-pretty text-sm text-muted">
-        A scenario starts at the decision month. Dates before that stay on the published line.
-      </p>
-      {#each scenarios as id (id)}
-        <button
-          class="border border-ink px-3 py-2 text-left"
-          onclick={() => act({ type: "apply", id })}
-        >
-          {id === "rate-10y" ? "Hold the 10-year yield from the decision month" : id}
+      <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {#each visible as card (card.id)}
+          <article class="flex flex-col gap-2 border border-line p-3 text-sm">
+            <p>{card.effect}</p>
+            <p class="font-semibold">{card.name}</p>
+            <p>{card.cost}</p>
+            <p>{card.status}</p>
+            <button
+              type="button"
+              class="mt-auto border border-ink px-3 py-2 text-left disabled:border-line disabled:opacity-60"
+              disabled={!card.playable || view.scenario === card.id}
+              onclick={() => act({ type: "apply", id: card.id })}
+            >{view.scenario === card.id ? "This card is on." : card.play}</button>
+          </article>
+        {/each}
+      </div>
+      {#if cards.length > 5}
+        <button type="button" class="text-left text-sm underline" onclick={() => (page = (page + 1) % Math.ceil(cards.length / 5))}>
+          Show the next 5 cards
         </button>
-      {/each}
-      {#if !scenarios.includes("spx-put")}
-        <p class="text-sm text-muted">SPX put is off. It needs the United States.</p>
-      {/if}
-      <button class="border border-line px-3 py-2 text-left" onclick={() => act({ type: "clear" })}>
-        Clear scenario
-      </button>
-      <button class="border border-line px-3 py-2 text-left" onclick={() => act({ type: "undo" })}>
-        Undo
-      </button>
-      {#if view.scenario}
-        {#key view.scenario}
-          <p class="animate__animated animate__fadeIn text-sm" style="--animate-duration: 0.35s">
-            Scenario on. The red line holds the decision yield.
-          </p>
-        {/key}
       {/if}
     </section>
 
-    <footer class="flex flex-wrap items-end justify-between gap-3 border-t border-line pt-3 lg:col-span-3">
-      <p class="num text-sm">
-        Published {yieldNow ? yieldNow.v.toFixed(2) : "n/a"}%.
-        Gap versus the held yield is 0.00 percentage points at the decision month.
-      </p>
-      <button class="border border-ink px-3 py-2" onclick={share}>Copy share link</button>
+    <footer class="border-t border-line pt-3 text-sm text-muted lg:col-span-2">
+      The monthly file ends in 2026-09. October daily prints are not in this file.
     </footer>
   </main>
 {/if}

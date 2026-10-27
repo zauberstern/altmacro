@@ -32,10 +32,9 @@
   function paint() {
     if (!canvas) return;
     const spec = buildTimeline(panel, view);
-    const datasets = spec.data.datasets.map((d, i) => ({
+    const datasets = spec.data.datasets.map((d) => ({
       ...d,
-      yAxisID: d.label?.includes("spread") ? "y1" : "y",
-      borderColor: i === 0 ? "#100f0f" : i === 1 && d.label === "Scenario" ? "#af3029" : "#4385be",
+      borderColor: d.label === "Scenario" ? "#af3029" : "#6f6e69",
       borderWidth: d.label === "Scenario" ? 2 : 1.5,
       pointRadius: 0,
       tension: 0,
@@ -60,17 +59,16 @@
           time: { unit: "year" as const },
         },
         y: { title: { display: true, text: "10-year yield, percent" } },
-        y1: {
-          position: "right" as const,
-          grid: { drawOnChartArea: false },
-          title: { display: true, text: "Spread, basis points" },
-        },
       },
     };
     if (!chart) {
       chart = new Chart(canvas, { type: "line", data, options });
     } else {
       chart.data = data;
+      if (chart.options.scales?.x) {
+        chart.options.scales.x.min = first;
+        chart.options.scales.x.max = last;
+      }
       chart.update();
     }
   }
@@ -85,4 +83,4 @@
   onDestroy(() => chart?.destroy());
 </script>
 
-<canvas bind:this={canvas} aria-label="French and German 10-year yields and the OAT-Bund spread"></canvas>
+<canvas class="absolute inset-0 h-full w-full" bind:this={canvas} aria-label="10-year yield, published and scenario"></canvas>

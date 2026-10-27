@@ -1,3 +1,5 @@
+import { cardsFor } from "./cards";
+
 export type View = {
   country: string;
   month: string;
@@ -27,12 +29,9 @@ export function initialState(panel: Panel): View {
 }
 
 export function allowedScenarios(view: View, panel: Panel): string[] {
-  const lines = panel.countries[view.country]?.lines ?? {};
-  const out: string[] = [];
-  if (lines.ltgdr?.length) out.push("rate-10y");
-  if (view.country === "USA" && lines.ltgdr?.length) out.push("us-treasury");
-  if (view.country === "USA") out.push("spx-put");
-  return out;
+  return cardsFor(view.country, view.month, panel)
+    .filter((card) => card.playable)
+    .map((card) => card.id);
 }
 
 function snap(view: View) {
@@ -55,10 +54,15 @@ export function applyAction(view: View, action: Action, panel?: Panel): View {
 
   const past = [...view.past, snap(view)];
   if (action.type === "country") {
-    return { country: action.id, month: view.month, scenario: null, past };
+    const line = panel?.countries[action.id]?.lines.ltgdr ?? [];
+    const month = [...line].reverse().find((row) => row.d <= view.month)?.d ?? line.at(-1)?.d ?? view.month;
+    return { country: action.id, month, scenario: null, past };
   }
   if (action.type === "month") {
-    return { ...view, month: action.id, past };
+    const line = panel?.countries[view.country]?.lines.ltgdr ?? [];
+    const last = line.at(-1)?.d;
+    const scenario = last && action.id >= last ? null : view.scenario;
+    return { ...view, month: action.id, scenario, past };
   }
   if (action.type === "apply") {
     return { ...view, scenario: action.id, past };

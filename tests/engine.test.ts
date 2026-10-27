@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { modifiedDuration, scenarioReturn } from "../src/engine/duration";
 import { applyAction, initialState } from "../src/engine/state";
 import { buildTimeline } from "../src/chart/timeline";
+import { cardsFor } from "../src/engine/cards";
+import { countryName, sortCountries } from "../src/engine/names";
 
 const panel = JSON.parse(readFileSync("public/data/panel.json", "utf8"));
 
@@ -31,22 +33,29 @@ describe("duration", () => {
 
 describe("state", () => {
   const base = initialState(panel);
+  const earlier = panel.countries.FRA.lines.ltgdr[0].d;
 
-  it("leaves the object unchanged when the scenario is rejected", () => {
-    const next = applyAction(base, { type: "apply", id: "spx-put" });
+  it("rejects a card on the last month", () => {
+    const next = applyAction(base, { type: "apply", id: "hold-10y" }, panel);
     expect(next).toBe(base);
+    const face = cardsFor("FRA", base.month, panel).find((card) => card.id === "hold-10y");
+    expect(face?.play).toBe("Pick an earlier month. Today is already the last point.");
+  });
+
+  it("rejects the SPX put for France", () => {
+    const next = applyAction({ ...base, month: earlier }, { type: "apply", id: "spx-put" }, panel);
     expect(next.scenario).toBeNull();
   });
 
-  it("does not apply the same scenario twice", () => {
-    const once = applyAction(base, { type: "apply", id: "rate-10y" }, panel);
-    expect(once.scenario).toBe("rate-10y");
-    const twice = applyAction(once, { type: "apply", id: "rate-10y" }, panel);
+  it("does not apply the same card twice", () => {
+    const once = applyAction({ ...base, month: earlier }, { type: "apply", id: "hold-10y" }, panel);
+    expect(once.scenario).toBe("hold-10y");
+    const twice = applyAction(once, { type: "apply", id: "hold-10y" }, panel);
     expect(twice).toBe(once);
   });
 
   it("undo restores the previous view", () => {
-    const next = applyAction(base, { type: "apply", id: "rate-10y" }, panel);
+    const next = applyAction({ ...base, month: earlier }, { type: "apply", id: "hold-10y" }, panel);
     const back = applyAction(next, { type: "undo" }, panel);
     expect(back.scenario).toBeNull();
     expect(back.country).toBe("FRA");
@@ -54,17 +63,78 @@ describe("state", () => {
 });
 
 describe("timeline", () => {
-  it("keeps the published yield and adds a scenario only after the decision", () => {
+  it("changes the last point and leaves earlier points on the published line", () => {
+    const yields = panel.countries.FRA.lines.ltgdr;
+    const earlier = yields.find((row) => row.v > 6);
+    expect(earlier).toBeTruthy();
     const config = buildTimeline(panel, {
       country: "FRA",
-      month: "2026-09-30",
-      scenario: "rate-10y",
+      month: earlier.d,
+      scenario: "hold-10y",
     });
     const published = config.data.datasets[0].data as { x: string; y: number }[];
     const fork = config.data.datasets.find((d) => d.label === "Scenario");
     const forkData = (fork?.data ?? []) as { x: string; y: number }[];
+    expect(published.map((point) => point.y)).toEqual(yields.map((row) => row.v));
+    expect(config.data.datasets.some((d) => d.label?.includes("spread"))).toBe(false);
     expect(published.at(-1)?.y).toBeCloseTo(4.4325, 3);
-    expect(forkData.filter((p) => p.x < "2026-09-30")).toEqual([]);
-    expect(forkData[0]?.x >= "2026-09-30").toBe(true);
+    expect(forkData.filter((p) => p.x < earlier.d)).toEqual([]);
+    expect(forkData.at(-1)?.y).toBeCloseTo(earlier.v, 3);
+    expect(forkData.at(-1)?.y).not.toBeCloseTo(published.at(-1)?.y ?? 0, 2);
+  });
+});
+
+describe("names and cards", () => {
+  it("names ISO codes and keeps France first", () => {
+    expect(countryName("BGD")).toBe("Bangladesh");
+    const ordered = sortCountries([
+      { id: "BGD", name: "Bangladesh" },
+      { id: "FRA", name: "France" },
+      { id: "DEU", name: "Germany" },
+    ]);
+    expect(ordered[0].id).toBe("FRA");
+  });
+
+  it("keeps named countries ahead of bare codes", () => {
+    const ordered = sortCountries(
+      Object.values(panel.countries).map((row: { iso: string; name: string }) => ({
+        id: row.iso,
+        name: countryName(row.iso, row.name),
+      })),
+    );
+    expect(ordered[0].id).toBe("FRA");
+    expect(ordered.slice(0, 5).every((row) => row.name !== row.id)).toBe(true);
+  });
+
+  it("lists chapter 1 and 2, and keeps the SPX card off France", () => {
+    const ids = cardsFor("FRA", "2012-06-29", panel).map((card) => card.id);
+    for (const id of [
+      "hold-10y",
+      "spot",
+      "outright",
+      "fx-swap",
+      "vanilla-call",
+      "vanilla-put",
+      "digital",
+      "barrier",
+      "tarf",
+      "accumulator",
+      "dual-currency",
+      "participating",
+    ]) {
+      expect(ids).toContain(id);
+    }
+    expect(ids).not.toContain("spx-put");
+    expect(cardsFor("USA", "2012-06-29", panel).some((card) => card.id === "spx-put")).toBe(true);
+    for (const card of cardsFor("FRA", "2012-06-29", panel)) {
+      expect(`${card.name}${card.effect}${card.cost}${card.status}${card.play}`).not.toMatch(/[—–]/);
+    }
+  });
+
+  it("locks FX options on one missing series", () => {
+    const face = cardsFor("FRA", "2012-01-31", panel).find((card) => card.id === "vanilla-call");
+    expect(face?.playable).toBe(false);
+    expect(face?.status).toBe("Missing: FX volatility");
+    expect([face?.name, face?.effect, face?.cost, face?.status, face?.play].filter(Boolean)).toHaveLength(5);
   });
 });

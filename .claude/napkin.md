@@ -27,6 +27,16 @@
    Do instead: hide that control when the country is in the euro.
 3. **[2026-10-27] A constant-within-year column is annual**
    Do instead: draw it once for the year, not as twelve monthly prints.
+4. **[2026-10-27] Yield and spread do not share one axis**
+   Do instead: draw the yield on the chart and put the spread in the rail.
+5. **[2026-10-27] The last month cannot play a card**
+   Do instead: disable it with "Pick an earlier month. Today is already the last point."
+6. **[2026-10-27] Bare ISO codes stay out of the first five names**
+   Do instead: show a country name, and keep France first.
+7. **[2026-10-27] Share confirms the copy**
+   Do instead: after the copy, the button reads "Link copied."
+8. **[2026-10-27] A play changes today and leaves the past**
+   Do instead: move the last point only. Every earlier published point stays.
 
 ## User Directives
 1. **[2026-10-27] No em dash in user-facing copy**

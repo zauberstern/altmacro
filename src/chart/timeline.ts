@@ -9,27 +9,22 @@ export type TimelineInput = {
   scenario: string | null;
 };
 
+/** Yield only. The spread stays in the rail so two units never share one chart. */
 export function buildTimeline(panel: Panel, view: TimelineInput) {
-  const lines = panel.countries[view.country]?.lines ?? {};
-  const published = lines.ltgdr ?? [];
+  const published = panel.countries[view.country]?.lines.ltgdr ?? [];
   const publishedData = published.map((p) => ({ x: p.d, y: p.v }));
   const datasets: { label: string; data: { x: string; y: number }[] }[] = [
     { label: "Published", data: publishedData },
   ];
-  if (view.scenario === "rate-10y") {
+  if (view.scenario === "hold-10y") {
     const at = [...published].reverse().find((p) => p.d <= view.month);
-    if (at) {
+    const later = published.filter((p) => p.d >= view.month);
+    if (at && later.length > 1) {
       datasets.push({
         label: "Scenario",
-        data: published
-          .filter((p) => p.d >= view.month)
-          .map((p) => ({ x: p.d, y: at.v })),
+        data: later.map((p) => ({ x: p.d, y: at.v })),
       });
     }
-  }
-  const spread = (lines.oat_bund_bps ?? []).map((p) => ({ x: p.d, y: p.v }));
-  if (spread.length) {
-    datasets.push({ label: "OAT-Bund spread, bp", data: spread });
   }
   return { type: "line" as const, data: { datasets } };
 }
